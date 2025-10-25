@@ -19,6 +19,15 @@ const Dashboard = ({ user, onLogout }) => {
   const [voiceTranscript, setVoiceTranscript] = useState('')
   const [voiceMessages, setVoiceMessages] = useState([])
   
+  // Notification settings popup state
+  const [isNotificationPopupOpen, setIsNotificationPopupOpen] = useState(false)
+  const [notificationSettings, setNotificationSettings] = useState({
+    emailNotifications: true,
+    emailNotificationTime: '09:00',
+    pushNotifications: false,
+    desktopNotifications: false
+  })
+  
   const fileInputRef = useRef(null)
   const chatMessagesEndRef = useRef(null)
   const recognitionRef = useRef(null)
@@ -353,6 +362,31 @@ const Dashboard = ({ user, onLogout }) => {
     }
   }
 
+  const toggleNotificationPopup = () => {
+    setIsNotificationPopupOpen(!isNotificationPopupOpen)
+  }
+
+  const handleNotificationSettingChange = (setting) => {
+    setNotificationSettings(prev => ({
+      ...prev,
+      [setting]: !prev[setting]
+    }))
+  }
+
+  const handleEmailTimeChange = (e) => {
+    setNotificationSettings(prev => ({
+      ...prev,
+      emailNotificationTime: e.target.value
+    }))
+  }
+
+  const saveNotificationSettings = () => {
+    // Burada backend'e kayıt işlemi yapılabilir
+    console.log('Bildirim ayarları kaydedildi:', notificationSettings)
+    setIsNotificationPopupOpen(false)
+    // TODO: Backend'e POST isteği
+  }
+
   return (
     <div className="dashboard">
       <div className="dashboard-header">
@@ -368,16 +402,132 @@ const Dashboard = ({ user, onLogout }) => {
             <span className="user-name">{user?.full_name || user?.email}</span>
           </div>
         </div>
-        <button className="logout-button" onClick={() => { onLogout(); navigate('/login'); }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-            <polyline points="16 17 21 12 16 7"/>
-            <line x1="21" y1="12" x2="9" y2="12"/>
-          </svg>
-          Çıkış
-        </button>
+        <div className="header-right">
+          <button className="notification-button" onClick={toggleNotificationPopup} title="Bildirim Ayarları">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            </svg>
+          </button>
+          <button className="logout-button" onClick={() => { onLogout(); navigate('/login'); }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            Çıkış
+          </button>
+        </div>
       </div>
 
+      {/* Notification Settings Popup */}
+      {isNotificationPopupOpen && (
+        <div className="notification-popup-overlay" onClick={toggleNotificationPopup}>
+          <div className="notification-popup" onClick={(e) => e.stopPropagation()}>
+            <div className="popup-header">
+              <h3>Bildirim Ayarları</h3>
+              <button className="popup-close" onClick={toggleNotificationPopup}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            
+            <div className="popup-content">
+              <div className="notification-option">
+                <div className="option-info">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                  </svg>
+                  <div className="option-text">
+                    <strong>E-posta Bildirimleri</strong>
+                    <span>Önemli güncellemeler için e-posta al</span>
+                  </div>
+                </div>
+                <label className="toggle-switch">
+                  <input 
+                    type="checkbox" 
+                    checked={notificationSettings.emailNotifications}
+                    onChange={() => handleNotificationSettingChange('emailNotifications')}
+                  />
+                  <span className="toggle-slider"></span>
+                </label>
+              </div>
+
+              {/* E-posta Saat Seçimi - Sadece e-posta aktifse göster */}
+              {notificationSettings.emailNotifications && (
+                <div className="notification-time-picker">
+                  <div className="time-picker-header">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                    <span>Bildirim Saati</span>
+                  </div>
+                  <input 
+                    type="text" 
+                    className="time-input"
+                    value={notificationSettings.emailNotificationTime}
+                    onChange={handleEmailTimeChange}
+                    placeholder="09:00"
+                    maxLength="5"
+                  />
+                </div>
+              )}
+
+              <div className="notification-option">
+                <div className="option-info">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+                    <line x1="12" y1="18" x2="12.01" y2="18"/>
+                  </svg>
+                  <div className="option-text">
+                    <strong>Push Bildirimleri</strong>
+                    <span>Mobil cihazınıza bildirim gönder</span>
+                  </div>
+                </div>
+                <label className="toggle-switch">
+                  <input 
+                    type="checkbox" 
+                    checked={notificationSettings.pushNotifications}
+                    onChange={() => handleNotificationSettingChange('pushNotifications')}
+                  />
+                  <span className="toggle-slider"></span>
+                </label>
+              </div>
+
+              <div className="notification-option">
+                <div className="option-info">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                    <line x1="8" y1="21" x2="16" y2="21"/>
+                    <line x1="12" y1="17" x2="12" y2="21"/>
+                  </svg>
+                  <div className="option-text">
+                    <strong>Masaüstü Bildirimleri</strong>
+                    <span>Tarayıcı bildirimlerini etkinleştir</span>
+                  </div>
+                </div>
+                <label className="toggle-switch">
+                  <input 
+                    type="checkbox" 
+                    checked={notificationSettings.desktopNotifications}
+                    onChange={() => handleNotificationSettingChange('desktopNotifications')}
+                  />
+                  <span className="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div className="popup-footer">
+              <button className="btn-cancel" onClick={toggleNotificationPopup}>İptal</button>
+              <button className="btn-save" onClick={saveNotificationSettings}>Kaydet</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="dashboard-content">
         <div className="sidebar">
           <div className="sidebar-header">
