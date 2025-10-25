@@ -12,6 +12,9 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from passlib.context import CryptContext
 from jose import jwt
 from jose.exceptions import ExpiredSignatureError, JWTError
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+import atexit
 
 
 JWT_SECRET = "CHANGE_ME_USE_ENV"
@@ -202,6 +205,82 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# =========================================================
+# Scheduler Kurulumu
+# =========================================================
+scheduler = BackgroundScheduler()
+scheduler.start()
+
+# Uygulama kapanırken scheduler'ı durdur
+atexit.register(lambda: scheduler.shutdown())
+
+
+def send_notification_to_user(user_id: int, user_email: str):
+    """
+    Belirli bir kullanıcıya bildirim gönderir.
+    Bu method sonradan implemente edilecek (email gönderme, push notification, vb.)
+    """
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Bildirim gönderiliyor: User ID={user_id}, Email={user_email}")
+    # TODO: Gerçek bildirim implementasyonu buraya eklenecek
+    # Örnek: SMTP ile email gönderme, Firebase Cloud Messaging, vb.
+
+
+def schedule_user_notifications():
+    """
+    Tüm kullanıcıların bildirim ayarlarını kontrol eder ve
+    her kullanıcı için ayrı cron job oluşturur.
+    """
+    db = SessionLocal()
+    try:
+        # Email bildirimi aktif olan tüm kullanıcıları al
+        settings_list = db.execute(
+            select(NotificationSettings, User)
+            .join(User, NotificationSettings.user_id == User.id)
+            .where(NotificationSettings.email_notifications == 1)
+        ).all()
+        
+        # Önce eski job'ları temizle
+        scheduler.remove_all_jobs()
+        
+        for settings, user in settings_list:
+            # Saat ve dakika parse et (örn: "09:00" -> hour=9, minute=0)
+            time_parts = settings.email_notification_time.split(":")
+            hour = int(time_parts[0])
+            minute = int(time_parts[1])
+            
+            # Her kullanıcı için benzersiz job ID
+            job_id = f"notification_user_{user.id}"
+            
+            # Cron trigger oluştur
+            trigger = CronTrigger(hour=hour, minute=minute)
+            
+            # Job'ı scheduler'a ekle
+            scheduler.add_job(
+                func=send_notification_to_user,
+                trigger=trigger,
+                args=[user.id, user.email],
+                id=job_id,
+                replace_existing=True,
+                name=f"Email Notification for {user.email}"
+            )
+            
+            print(f"✓ Bildirim planlandı: {user.email} -> Her gün {settings.email_notification_time}")
+        
+        print(f"Toplam {len(settings_list)} kullanıcı için bildirim planlandı.")
+    except Exception as e:
+        print(f"Bildirim planlama hatası: {e}")
+    finally:
+        db.close()
+
+
+# Uygulama başladığında bildirimleri planla
+@app.on_event("startup")
+async def startup_event():
+    print("Uygulama başlatılıyor...")
+    schedule_user_notifications()
+    print("Bildirim scheduler başlatıldı.")
 
 
 # ------------------------ Register ------------------------
@@ -443,6 +522,9 @@ def update_notification_settings(
     
     db.commit()
     db.refresh(settings)
+    
+    # Bildirim ayarları güncellendiğinde scheduler'ı yeniden yapılandır
+    schedule_user_notifications()
     
     return NotificationSettingsOut(
         email_notifications=bool(settings.email_notifications),
