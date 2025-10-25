@@ -12,18 +12,90 @@ const Dashboard = ({ user, onLogout }) => {
   const [currentMessage, setCurrentMessage] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [activeTab, setActiveTab] = useState('chat') // 'chat' veya 'voice'
+  
+  // Voice states
+  const [isRecording, setIsRecording] = useState(false)
+  const [isListening, setIsListening] = useState(false)
+  const [voiceTranscript, setVoiceTranscript] = useState('')
+  const [voiceMessages, setVoiceMessages] = useState([])
+  
   const fileInputRef = useRef(null)
   const chatMessagesEndRef = useRef(null)
+  const recognitionRef = useRef(null)
+  const synthRef = useRef(null)
 
   // Component mount olduğunda kullanıcının dosyalarını yükle
   useEffect(() => {
     loadUserFiles()
+    initializeSpeechRecognition()
+    initializeSpeechSynthesis()
   }, [])
 
   // Chat mesajları değiştiğinde en alta scroll
   useEffect(() => {
     scrollToBottom()
   }, [chatMessages])
+
+  // Speech Recognition'ı başlat
+  const initializeSpeechRecognition = () => {
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+      const recognition = new SpeechRecognition()
+      
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognition.lang = 'tr-TR' // Türkçe
+      
+      recognition.onstart = () => {
+        setIsListening(true)
+        console.log('Ses dinleme başladı')
+      }
+      
+      recognition.onresult = (event) => {
+        let interimTranscript = ''
+        let finalTranscript = ''
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript + ' '
+          } else {
+            interimTranscript += transcript
+          }
+        }
+        
+        if (finalTranscript) {
+          setVoiceTranscript(finalTranscript.trim())
+        } else {
+          setVoiceTranscript(interimTranscript)
+        }
+      }
+      
+      recognition.onerror = (event) => {
+        console.error('Ses tanıma hatası:', event.error)
+        setIsListening(false)
+        setIsRecording(false)
+      }
+      
+      recognition.onend = () => {
+        setIsListening(false)
+        console.log('Ses dinleme durdu')
+      }
+      
+      recognitionRef.current = recognition
+    } else {
+      console.warn('Tarayıcınız ses tanımayı desteklemiyor')
+    }
+  }
+
+  // Speech Synthesis'i başlat
+  const initializeSpeechSynthesis = () => {
+    if ('speechSynthesis' in window) {
+      synthRef.current = window.speechSynthesis
+    } else {
+      console.warn('Tarayıcınız konuşma sentezini desteklemiyor')
+    }
+  }
 
   const scrollToBottom = () => {
     chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -115,6 +187,91 @@ const Dashboard = ({ user, onLogout }) => {
     } catch (error) {
       console.error('Dosya silinirken hata:', error)
       alert(`Dosya silinirken hata oluştu: ${error.message}`)
+    }
+  }
+
+  // Voice: Kayıt başlat
+  const startVoiceRecording = () => {
+    if (recognitionRef.current && !isRecording) {
+      setIsRecording(true)
+      setVoiceTranscript('')
+      recognitionRef.current.start()
+    }
+  }
+
+  // Voice: Kayıt durdur ve mesaj gönder
+  const stopVoiceRecording = async () => {
+    if (recognitionRef.current && isRecording) {
+      recognitionRef.current.stop()
+      setIsRecording(false)
+      
+      // Transcript varsa mesaj olarak gönder
+      if (voiceTranscript.trim()) {
+        await sendVoiceMessage(voiceTranscript.trim())
+        setVoiceTranscript('')
+      }
+    }
+  }
+
+  // Voice mesajını backend'e gönder ve yanıtı sesli oku
+  const sendVoiceMessage = async (message) => {
+    if (!message.trim()) return
+
+    const userMessage = {
+      id: Date.now(),
+      type: 'user',
+      text: message,
+      timestamp: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+    }
+    setVoiceMessages(prev => [...prev, userMessage])
+
+    try {
+      const response = await apiService.sendMessage(message)
+      
+      const botMessage = {
+        id: Date.now() + 1,
+        type: 'bot',
+        text: response.bot_response,
+        timestamp: new Date(response.timestamp).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+      }
+      setVoiceMessages(prev => [...prev, botMessage])
+      
+      // Bot cevabını sesli oku
+      speakText(response.bot_response)
+      
+    } catch (error) {
+      console.error('Mesaj gönderilirken hata:', error)
+      const errorMessage = {
+        id: Date.now() + 1,
+        type: 'bot',
+        text: `Üzgünüm, bir hata oluştu: ${error.message}`,
+        timestamp: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+      }
+      setVoiceMessages(prev => [...prev, errorMessage])
+    }
+  }
+
+  // Text-to-Speech: Metni sesli oku
+  const speakText = (text) => {
+    if (synthRef.current) {
+      // Önceki konuşmayı durdur
+      synthRef.current.cancel()
+      
+      const utterance = new SpeechSynthesisUtterance(text)
+      utterance.lang = 'tr-TR'
+      utterance.rate = 1.0
+      utterance.pitch = 1.0
+      utterance.volume = 1.0
+      
+      utterance.onend = () => {
+        console.log('Konuşma tamamlandı')
+      }
+      
+      utterance.onerror = (event) => {
+        console.error('TTS hatası:', event.error)
+      }
+      
+      synthRef.current.speak(utterance)
     }
   }
 
@@ -376,16 +533,50 @@ const Dashboard = ({ user, onLogout }) => {
             {/* Voice Panel */}
             {activeTab === 'voice' && (
               <div className="tab-content">
-                <div className="voice-area">
-                  <div className="voice-content">
-                    <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                      <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                      <line x1="12" y1="19" x2="12" y2="23"/>
-                      <line x1="8" y1="23" x2="16" y2="23"/>
-                    </svg>
-                    <p>Sesli sohbet özelliği</p>
-                    <span>Yakında entegre edilecek</span>
+                <div className="voice-area-centered">
+                  {/* Voice Controls */}
+                  <div className="voice-controls-centered">
+                    {/* Transcript Display - Sadece kayıt yaparken göster */}
+                    {isRecording && voiceTranscript && (
+                      <div className="voice-transcript">
+                        <p>{voiceTranscript}</p>
+                      </div>
+                    )}
+
+                    {/* Recording Status */}
+                    <div className="voice-status">
+                      {isRecording ? (
+                        <span className="status-recording">
+                          <span className="recording-dot"></span>
+                          {isListening ? 'Dinleniyor...' : 'Kayıt başlatılıyor...'}
+                        </span>
+                      ) : (
+                        <span className="status-idle">Mikrofon butonuna basarak konuşmaya başlayın</span>
+                      )}
+                    </div>
+
+                    {/* Microphone Button */}
+                    <div className="voice-button-container">
+                      <button
+                        className={`voice-button ${isRecording ? 'recording' : ''}`}
+                        onMouseDown={startVoiceRecording}
+                        onMouseUp={stopVoiceRecording}
+                        onTouchStart={startVoiceRecording}
+                        onTouchEnd={stopVoiceRecording}
+                        title="Basılı tutarak konuşun"
+                      >
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                          <line x1="12" y1="19" x2="12" y2="23"/>
+                          <line x1="8" y1="23" x2="16" y2="23"/>
+                        </svg>
+                        {isRecording && (
+                          <span className="recording-pulse"></span>
+                        )}
+                      </button>
+                      <p className="voice-hint">Basılı tut</p>
+                    </div>
                   </div>
                 </div>
               </div>
