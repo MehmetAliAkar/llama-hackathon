@@ -326,6 +326,24 @@
   transform: translateX(24px);
 }
 
+/* Bildirim Uyarısı */
+.notification-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  margin: 0 16px 12px 16px;
+  background: #fef3c7;
+  border: 1px solid #fbbf24;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #92400e;
+}
+
+.notification-warning svg {
+  flex-shrink: 0;
+}
+
 .popup-footer {
   display: flex;
   justify-content: flex-end;

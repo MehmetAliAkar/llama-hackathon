@@ -201,6 +201,61 @@ class ApiService {
       throw error
     }
   }
+
+  // Bildirim ayarlarını getir
+  async getNotificationSettings() {
+    try {
+      const token = localStorage.getItem('access_token')
+      if (!token) {
+        throw new Error('Token bulunamadı')
+      }
+
+      const response = await fetch(`${API_BASE_URL}/notification-settings`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.detail || 'Bildirim ayarları alınamadı')
+      }
+
+      return await response.json()
+    } catch (error) {
+      throw error
+    }
+  }
+
+  // Bildirim ayarlarını güncelle
+  async updateNotificationSettings(settings) {
+    try {
+      const token = localStorage.getItem('access_token')
+      if (!token) {
+        throw new Error('Token bulunamadı')
+      }
+
+      const response = await fetch(`${API_BASE_URL}/notification-settings`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(settings),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.detail || 'Bildirim ayarları güncellenemedi')
+      }
+
+      return await response.json()
+    } catch (error) {
+      throw error
+    }
+  }
 }
 
 export default new ApiService()

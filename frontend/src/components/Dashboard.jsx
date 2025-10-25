@@ -24,8 +24,7 @@ const Dashboard = ({ user, onLogout }) => {
   const [notificationSettings, setNotificationSettings] = useState({
     emailNotifications: true,
     emailNotificationTime: '09:00',
-    pushNotifications: false,
-    desktopNotifications: false
+    pushNotifications: false
   })
   
   const fileInputRef = useRef(null)
@@ -362,7 +361,20 @@ const Dashboard = ({ user, onLogout }) => {
     }
   }
 
-  const toggleNotificationPopup = () => {
+  const toggleNotificationPopup = async () => {
+    if (!isNotificationPopupOpen) {
+      // Popup açılırken backend'den ayarları çek
+      try {
+        const settings = await apiService.getNotificationSettings()
+        setNotificationSettings({
+          emailNotifications: settings.email_notifications,
+          emailNotificationTime: settings.email_notification_time,
+          pushNotifications: settings.push_notifications
+        })
+      } catch (error) {
+        console.error('Bildirim ayarları yüklenemedi:', error)
+      }
+    }
     setIsNotificationPopupOpen(!isNotificationPopupOpen)
   }
 
@@ -380,11 +392,21 @@ const Dashboard = ({ user, onLogout }) => {
     }))
   }
 
-  const saveNotificationSettings = () => {
-    // Burada backend'e kayıt işlemi yapılabilir
-    console.log('Bildirim ayarları kaydedildi:', notificationSettings)
-    setIsNotificationPopupOpen(false)
-    // TODO: Backend'e POST isteği
+  const saveNotificationSettings = async () => {
+    try {
+      // Backend'e kaydet
+      const savedSettings = await apiService.updateNotificationSettings({
+        email_notifications: notificationSettings.emailNotifications,
+        email_notification_time: notificationSettings.emailNotificationTime,
+        push_notifications: notificationSettings.pushNotifications
+      })
+      
+      console.log('Bildirim ayarları kaydedildi:', savedSettings)
+      setIsNotificationPopupOpen(false)
+    } catch (error) {
+      console.error('Bildirim ayarları kaydedilemedi:', error)
+      alert('Ayarlar kaydedilirken bir hata oluştu: ' + error.message)
+    }
   }
 
   return (
@@ -493,28 +515,6 @@ const Dashboard = ({ user, onLogout }) => {
                     type="checkbox" 
                     checked={notificationSettings.pushNotifications}
                     onChange={() => handleNotificationSettingChange('pushNotifications')}
-                  />
-                  <span className="toggle-slider"></span>
-                </label>
-              </div>
-
-              <div className="notification-option">
-                <div className="option-info">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                    <line x1="8" y1="21" x2="16" y2="21"/>
-                    <line x1="12" y1="17" x2="12" y2="21"/>
-                  </svg>
-                  <div className="option-text">
-                    <strong>Masaüstü Bildirimleri</strong>
-                    <span>Tarayıcı bildirimlerini etkinleştir</span>
-                  </div>
-                </div>
-                <label className="toggle-switch">
-                  <input 
-                    type="checkbox" 
-                    checked={notificationSettings.desktopNotifications}
-                    onChange={() => handleNotificationSettingChange('desktopNotifications')}
                   />
                   <span className="toggle-slider"></span>
                 </label>

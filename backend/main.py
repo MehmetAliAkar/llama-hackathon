@@ -52,6 +52,16 @@ class UploadedFile(Base):
     uploaded_at = Column(DateTime, default=datetime.utcnow)
 
 
+class NotificationSettings(Base):
+    __tablename__ = "notification_settings"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, unique=True, nullable=False, index=True)
+    email_notifications = Column(Integer, default=1)  # 0 veya 1 (boolean gibi)
+    email_notification_time = Column(String(5), default="09:00")  # HH:MM formatı
+    push_notifications = Column(Integer, default=0)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 Base.metadata.create_all(bind=engine)
 
 
@@ -144,6 +154,21 @@ class UploadedFileOut(BaseModel):
     file_size: int
     file_type: Optional[str] = None
     uploaded_at: datetime
+    class Config:
+        from_attributes = True
+
+
+class NotificationSettingsIn(BaseModel):
+    email_notifications: bool = False
+    email_notification_time: str = "09:00"
+    push_notifications: bool = False
+
+
+class NotificationSettingsOut(BaseModel):
+    email_notifications: bool
+    email_notification_time: str
+    push_notifications: bool
+    updated_at: datetime
     class Config:
         from_attributes = True
 
@@ -348,3 +373,81 @@ def chat(
         bot_response=bot_response,
         timestamp=datetime.utcnow()
     )
+
+
+# =========================================================
+# Bildirim Ayarları Endpoints
+# =========================================================
+@app.get("/notification-settings", response_model=NotificationSettingsOut)
+def get_notification_settings(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Kullanıcının mevcut bildirim ayarlarını getirir.
+    Eğer kayıt yoksa varsayılan değerlerle oluşturur.
+    """
+    settings = db.scalar(
+        select(NotificationSettings).where(NotificationSettings.user_id == current_user.id)
+    )
+    
+    if not settings:
+        # Varsayılan ayarları oluştur
+        settings = NotificationSettings(
+            user_id=current_user.id,
+            email_notifications=0,
+            email_notification_time="09:00",
+            push_notifications=0
+        )
+        db.add(settings)
+        db.commit()
+        db.refresh(settings)
+    
+    return NotificationSettingsOut(
+        email_notifications=bool(settings.email_notifications),
+        email_notification_time=settings.email_notification_time,
+        push_notifications=bool(settings.push_notifications),
+        updated_at=settings.updated_at
+    )
+
+
+@app.post("/notification-settings", response_model=NotificationSettingsOut)
+def update_notification_settings(
+    settings_in: NotificationSettingsIn,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Kullanıcının bildirim ayarlarını günceller.
+    Kayıt yoksa yeni oluşturur.
+    """
+    settings = db.scalar(
+        select(NotificationSettings).where(NotificationSettings.user_id == current_user.id)
+    )
+    
+    if settings:
+        # Mevcut ayarları güncelle
+        settings.email_notifications = int(settings_in.email_notifications)
+        settings.email_notification_time = settings_in.email_notification_time
+        settings.push_notifications = int(settings_in.push_notifications)
+        settings.updated_at = datetime.utcnow()
+    else:
+        # Yeni ayar kaydı oluştur
+        settings = NotificationSettings(
+            user_id=current_user.id,
+            email_notifications=int(settings_in.email_notifications),
+            email_notification_time=settings_in.email_notification_time,
+            push_notifications=int(settings_in.push_notifications)
+        )
+        db.add(settings)
+    
+    db.commit()
+    db.refresh(settings)
+    
+    return NotificationSettingsOut(
+        email_notifications=bool(settings.email_notifications),
+        email_notification_time=settings.email_notification_time,
+        push_notifications=bool(settings.push_notifications),
+        updated_at=settings.updated_at
+    )
+
