@@ -11,6 +11,7 @@ const Dashboard = ({ user, onLogout }) => {
   const [chatMessages, setChatMessages] = useState([])
   const [currentMessage, setCurrentMessage] = useState('')
   const [isSending, setIsSending] = useState(false)
+  const [activeTab, setActiveTab] = useState('chat') // 'chat' veya 'voice'
   const fileInputRef = useRef(null)
   const chatMessagesEndRef = useRef(null)
 
@@ -291,60 +292,104 @@ const Dashboard = ({ user, onLogout }) => {
         </div>
 
         <div className="main-content">
-          <div className="chat-container">
-            <div className="chat-header">
-              <h2>CHAT</h2>
+          <div className="unified-container">
+            {/* Tab Header */}
+            <div className="tab-header">
+              <button 
+                className={`tab-button ${activeTab === 'chat' ? 'active' : ''}`}
+                onClick={() => setActiveTab('chat')}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+                CHAT
+              </button>
+              <button 
+                className={`tab-button ${activeTab === 'voice' ? 'active' : ''}`}
+                onClick={() => setActiveTab('voice')}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                  <line x1="12" y1="19" x2="12" y2="23"/>
+                  <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
+                VOICE
+              </button>
             </div>
-            
-            <div className="chat-area">
-              <div className="chat-messages">
-                {chatMessages.length === 0 ? (
-                  <div className="empty-chat">
-                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                    </svg>
-                    <p>Sohbete başlamak için bir mesaj yazın</p>
-                  </div>
-                ) : (
-                  <>
-                    {chatMessages.map(msg => (
-                      <div key={msg.id} className={`chat-message ${msg.type}`}>
-                        <div className="message-content">
-                          <p>{msg.text}</p>
-                          <span className="message-time">{msg.timestamp}</span>
-                        </div>
+
+            {/* Chat Panel */}
+            {activeTab === 'chat' && (
+              <div className="tab-content">
+                <div className="chat-area">
+                  <div className="chat-messages">
+                    {chatMessages.length === 0 ? (
+                      <div className="empty-chat">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                        </svg>
+                        <p>Sohbete başlamak için bir mesaj yazın</p>
                       </div>
-                    ))}
-                    <div ref={chatMessagesEndRef} />
-                  </>
-                )}
+                    ) : (
+                      <>
+                        {chatMessages.map(msg => (
+                          <div key={msg.id} className={`chat-message ${msg.type}`}>
+                            <div className="message-content">
+                              <p>{msg.text}</p>
+                              <span className="message-time">{msg.timestamp}</span>
+                            </div>
+                          </div>
+                        ))}
+                        <div ref={chatMessagesEndRef} />
+                      </>
+                    )}
+                  </div>
+                  
+                  <form className="chat-input-container" onSubmit={handleSendMessage}>
+                    <input 
+                      type="text" 
+                      className="chat-input" 
+                      placeholder="Mesajınızı yazın..."
+                      value={currentMessage}
+                      onChange={(e) => setCurrentMessage(e.target.value)}
+                      disabled={isSending}
+                    />
+                    <button 
+                      type="submit" 
+                      className="send-button"
+                      disabled={!currentMessage.trim() || isSending}
+                    >
+                      {isSending ? (
+                        <span className="loading-spinner-small"></span>
+                      ) : (
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <line x1="22" y1="2" x2="11" y2="13"/>
+                          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                        </svg>
+                      )}
+                    </button>
+                  </form>
+                </div>
               </div>
-              
-              <form className="chat-input-container" onSubmit={handleSendMessage}>
-                <input 
-                  type="text" 
-                  className="chat-input" 
-                  placeholder="Mesajınızı yazın..."
-                  value={currentMessage}
-                  onChange={(e) => setCurrentMessage(e.target.value)}
-                  disabled={isSending}
-                />
-                <button 
-                  type="submit" 
-                  className="send-button"
-                  disabled={!currentMessage.trim() || isSending}
-                >
-                  {isSending ? (
-                    <span className="loading-spinner-small"></span>
-                  ) : (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <line x1="22" y1="2" x2="11" y2="13"/>
-                      <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            )}
+
+            {/* Voice Panel */}
+            {activeTab === 'voice' && (
+              <div className="tab-content">
+                <div className="voice-area">
+                  <div className="voice-content">
+                    <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                      <line x1="12" y1="19" x2="12" y2="23"/>
+                      <line x1="8" y1="23" x2="16" y2="23"/>
                     </svg>
-                  )}
-                </button>
-              </form>
-            </div>
+                    <p>Sesli sohbet özelliği</p>
+                    <span>Yakında entegre edilecek</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
