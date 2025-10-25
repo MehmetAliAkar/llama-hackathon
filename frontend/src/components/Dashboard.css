@@ -451,6 +451,11 @@
   line-height: 1.5;
 }
 
+/* Transcript Hidden (İleride açmak için CSS'i kaldır) */
+.voice-transcript-hidden {
+  display: none !important;
+}
+
 .voice-status {
   text-align: center;
   padding: 12px;

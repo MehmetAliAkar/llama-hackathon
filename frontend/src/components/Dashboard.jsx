@@ -536,9 +536,9 @@ const Dashboard = ({ user, onLogout }) => {
                 <div className="voice-area-centered">
                   {/* Voice Controls */}
                   <div className="voice-controls-centered">
-                    {/* Transcript Display - Sadece kayıt yaparken göster */}
+                    {/* Transcript Display - hidden*/}
                     {isRecording && voiceTranscript && (
-                      <div className="voice-transcript">
+                      <div className="voice-transcript voice-transcript-hidden">
                         <p>{voiceTranscript}</p>
                       </div>
                     )}
