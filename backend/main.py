@@ -16,6 +16,15 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import atexit
 
+# SMTP imports
+import smtplib
+import ssl
+from email.message import EmailMessage
+
+from dotenv import load_dotenv
+load_dotenv()  # .env dosyasını yükler
+
+
 
 JWT_SECRET = "CHANGE_ME_USE_ENV"
 JWT_ALG = "HS256"
@@ -24,6 +33,16 @@ ACCESS_TOKEN_EXPIRE_MIN = 60  # dakika
 DATABASE_URL = "sqlite:///./app.db"
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+# SMTP Config (env üzerinden yönet)
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))  # 465 (SSL) veya 587 (STARTTLS)
+SMTP_USER = os.getenv("SMTP_USER", "you@example.com")
+SMTP_PASS = os.getenv("SMTP_PASS", "CHANGE_ME")
+SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", SMTP_USER)
+SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "SmartDesk Bot")
+SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "false").lower() == "true"       # 465
+SMTP_USE_STARTTLS = os.getenv("SMTP_USE_STARTTLS", "true").lower() == "true"  # 587
 
 
 # =========================================================
@@ -108,7 +127,6 @@ def get_current_user(
     if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="Bearer token gerekli")
 
-
     token = credentials.credentials
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
@@ -119,7 +137,6 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Token süresi dolmuş")
     except JWTError:
         raise HTTPException(status_code=401, detail="Geçersiz token")
-
 
     user = db.scalar(select(User).where(User.email == email))
     if not user:
@@ -141,6 +158,7 @@ class UserOut(BaseModel):
     email: EmailStr
     full_name: Optional[str] = None
     created_at: datetime
+
     class Config:
         from_attributes = True  # SQLAlchemy objelerini otomatik dönüştür
 
@@ -157,6 +175,7 @@ class UploadedFileOut(BaseModel):
     file_size: int
     file_type: Optional[str] = None
     uploaded_at: datetime
+
     class Config:
         from_attributes = True
 
@@ -172,6 +191,7 @@ class NotificationSettingsOut(BaseModel):
     email_notification_time: str
     push_notifications: bool
     updated_at: datetime
+
     class Config:
         from_attributes = True
 
@@ -217,14 +237,132 @@ scheduler.start()
 atexit.register(lambda: scheduler.shutdown())
 
 
+import smtplib
+import ssl
+import os
+from email.message import EmailMessage
+
+def _smtp_debug_enabled() -> bool:
+    val = os.getenv("SMTP_DEBUG", "0").strip()
+    return val in ("1", "true", "True", "yes", "on")
+
+def _send_via_ssl(host, port, user, password, msg):
+    context = ssl.create_default_context()
+    with smtplib.SMTP_SSL(host, port, context=context, timeout=30) as server:
+        if _smtp_debug_enabled():
+            server.set_debuglevel(1)
+        server.ehlo()
+        server.login(user, password)
+        server.send_message(msg)
+
+def _send_via_starttls(host, port, user, password, msg):
+    with smtplib.SMTP(host, port, timeout=30) as server:
+        if _smtp_debug_enabled():
+            server.set_debuglevel(1)
+        server.ehlo()
+        context = ssl.create_default_context()
+        server.starttls(context=context)
+        server.ehlo()
+        server.login(user, password)
+        server.send_message(msg)
+
+def send_email(
+    to_email: str,
+    subject: str,
+    html_body: str,
+    text_body: Optional[str] = None,
+) -> None:
+    msg = EmailMessage()
+    from_header = f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>" if SMTP_FROM_NAME else SMTP_FROM_EMAIL
+    msg["From"] = from_header
+    msg["To"] = to_email
+    msg["Subject"] = subject
+
+    if text_body:
+        msg.set_content(text_body)
+        msg.add_alternative(html_body, subtype="html")
+    else:
+        msg.set_content("Bu e-postayı HTML destekli bir istemcide görüntüleyin.")
+        msg.add_alternative(html_body, subtype="html")
+
+    # Env’den oku
+    host = SMTP_HOST
+    port = SMTP_PORT
+    user = SMTP_USER
+    password = SMTP_PASS
+    use_ssl = SMTP_USE_SSL
+    use_starttls = SMTP_USE_STARTTLS
+
+    print(f"[SMTP] host={host} port={port} ssl={use_ssl} starttls={use_starttls} from={SMTP_FROM_EMAIL} -> to={to_email}")
+
+    # Önce env’deki ayarı dene; olmazsa karşı protokole düş
+    tried = []
+
+    def try_once(kind):
+        tried.append(kind)
+        if kind == "SSL":
+            _send_via_ssl(host, 465, user, password, msg)
+        else:
+            _send_via_starttls(host, 587, user, password, msg)
+
+    # 1) Env’e göre ilk tercih
+    first = "SSL" if use_ssl else "STARTTLS"
+    second = "STARTTLS" if first == "SSL" else "SSL"
+
+    try:
+        try_once(first)
+        return
+    except smtplib.SMTPServerDisconnected as e:
+        # Connection unexpectedly closed
+        print(f"[SMTP] {first} denemesi bağlantı kapandı: {e}")
+    except smtplib.SMTPAuthenticationError as e:
+        raise HTTPException(status_code=500, detail=f"E-posta gönderim hatası: Kimlik doğrulama reddedildi (SMTPAuthenticationError). Google hesabında App Password ve güvenlik uyarılarını kontrol edin. Ayrıntı: {getattr(e, 'smtp_error', e)}")
+    except smtplib.SMTPConnectError as e:
+        print(f"[SMTP] {first} denemesi bağlanamadı: {e}")
+    except smtplib.SMTPException as e:
+        print(f"[SMTP] {first} SMTPException: {e}")
+    except Exception as e:
+        print(f"[SMTP] {first} beklenmeyen hata: {e}")
+
+    # 2) Otomatik fallback (diğer protokole dene)
+    try:
+        try_once(second)
+        return
+    except smtplib.SMTPAuthenticationError as e:
+        raise HTTPException(status_code=500, detail=f"E-posta gönderim hatası: Kimlik doğrulama reddedildi (fallback {second}). App Password/güvenlik onayı gerekebilir. Ayrıntı: {getattr(e, 'smtp_error', e)}")
+    except smtplib.SMTPServerDisconnected as e:
+        raise HTTPException(status_code=500, detail=f"E-posta gönderim hatası: Sunucu bağlantıyı beklenmedik şekilde kapattı (fallback {second}): {e}")
+    except smtplib.SMTPConnectError as e:
+        raise HTTPException(status_code=500, detail=f"E-posta gönderim hatası: SMTP bağlantısı kurulamadı (fallback {second}): {e}")
+    except smtplib.SMTPException as e:
+        raise HTTPException(status_code=500, detail=f"E-posta gönderim hatası: SMTPException (fallback {second}): {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"E-posta gönderim hatası: {e}")
+
 def send_notification_to_user(user_id: int, user_email: str):
     """
-    Belirli bir kullanıcıya bildirim gönderir.
-    Bu method sonradan implemente edilecek (email gönderme, push notification, vb.)
+    Belirli bir kullanıcıya bildirim gönderir (şu an e-posta).
     """
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Bildirim gönderiliyor: User ID={user_id}, Email={user_email}")
-    # TODO: Gerçek bildirim implementasyonu buraya eklenecek
-    # Örnek: SMTP ile email gönderme, Firebase Cloud Messaging, vb.
+    now = datetime.now().strftime('%Y-%m-%d %H:%M')
+    subject = "Günlük Hatırlatma"
+    html = f"""
+    <div style="font-family:Arial,sans-serif;">
+      <h2>Günlük Hatırlatma</h2>
+      <p>Merhaba,</p>
+      <p>{now} itibarıyla planlı günlük bildiriminiz.</p>
+      <hr/>
+      <p style="font-size:12px;color:#666;">
+        Bu e-posta otomatik olarak gönderilmiştir.
+      </p>
+    </div>
+    """
+    text = f"Günlük Hatırlatma\n\n{now} itibarıyla planlı günlük bildiriminiz."
+
+    try:
+        send_email(to_email=user_email, subject=subject, html_body=html, text_body=text)
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] E-posta gönderildi: User ID={user_id}, Email={user_email}")
+    except Exception as e:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] E-posta gönderim hatası: {user_email} -> {e}")
 
 
 def schedule_user_notifications():
@@ -240,22 +378,22 @@ def schedule_user_notifications():
             .join(User, NotificationSettings.user_id == User.id)
             .where(NotificationSettings.email_notifications == 1)
         ).all()
-        
+
         # Önce eski job'ları temizle
         scheduler.remove_all_jobs()
-        
+
         for settings, user in settings_list:
             # Saat ve dakika parse et (örn: "09:00" -> hour=9, minute=0)
             time_parts = settings.email_notification_time.split(":")
             hour = int(time_parts[0])
             minute = int(time_parts[1])
-            
+
             # Her kullanıcı için benzersiz job ID
             job_id = f"notification_user_{user.id}"
-            
+
             # Cron trigger oluştur
             trigger = CronTrigger(hour=hour, minute=minute)
-            
+
             # Job'ı scheduler'a ekle
             scheduler.add_job(
                 func=send_notification_to_user,
@@ -265,9 +403,9 @@ def schedule_user_notifications():
                 replace_existing=True,
                 name=f"Email Notification for {user.email}"
             )
-            
+
             print(f"✓ Bildirim planlandı: {user.email} -> Her gün {settings.email_notification_time}")
-        
+
         print(f"Toplam {len(settings_list)} kullanıcı için bildirim planlandı.")
     except Exception as e:
         print(f"Bildirim planlama hatası: {e}")
@@ -289,7 +427,6 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
     exists = db.scalar(select(User).where(User.email == payload.email))
     if exists:
         raise HTTPException(status_code=400, detail="Bu email zaten kayıtlı")
-
 
     user = User(
         email=payload.email,
@@ -331,29 +468,29 @@ async def upload_file(
     Sadece authentication yapılmış kullanıcılar dosya yükleyebilir.
     İzin verilen dosya tipleri: audio/*, .png, .jpg, .jpeg
     """
-    
+
     # Dosya uzantısını kontrol et
     file_extension = file.filename.split('.')[-1].lower() if '.' in file.filename else ''
     allowed_extensions = ['png', 'jpg', 'jpeg', 'mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac']
-    
+
     if file_extension not in allowed_extensions and not file.content_type.startswith('audio/'):
         raise HTTPException(
             status_code=400,
             detail=f"Desteklenmeyen dosya tipi. İzin verilen: {', '.join(allowed_extensions)} veya ses dosyaları"
         )
-    
+
     # Benzersiz dosya adı oluştur (timestamp + original filename)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_filename = f"{timestamp}_{file.filename}"
     file_path = UPLOAD_DIR / safe_filename
-    
+
     # Dosyayı kaydet
     try:
         with file_path.open("wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Dosya yüklenirken hata oluştu: {str(e)}")
-    
+
     # Veritabanına kaydet
     file_size = file_path.stat().st_size
     db_file = UploadedFile(
@@ -367,7 +504,7 @@ async def upload_file(
     db.add(db_file)
     db.commit()
     db.refresh(db_file)
-    
+
     return db_file
 
 
@@ -403,10 +540,10 @@ def delete_file(
         select(UploadedFile)
         .where(UploadedFile.id == file_id, UploadedFile.user_id == current_user.id)
     )
-    
+
     if not db_file:
         raise HTTPException(status_code=404, detail="Dosya bulunamadı")
-    
+
     # Fiziksel dosyayı sil
     try:
         file_path = Path(db_file.file_path)
@@ -414,11 +551,11 @@ def delete_file(
             file_path.unlink()
     except Exception as e:
         print(f"Dosya silinirken hata: {e}")
-    
+
     # Veritabanından sil
     db.delete(db_file)
     db.commit()
-    
+
     return {"message": "Dosya başarıyla silindi", "filename": db_file.filename}
 
 
@@ -433,11 +570,10 @@ def chat(
     Şimdilik basit bir cevap dönüyor, ileride AI model entegrasyonu yapılabilir.
     """
     user_message = payload.message.strip()
-    
+
     # Basit bot cevapları (ileride AI model ile değiştirilebilir)
     bot_response = f"Mesajınızı aldım: '{user_message}'. Bu bir demo cevaptır. İleride AI modeli entegre edilecek."
-    
-    # Eğer mesaj belirli kelimeler içeriyorsa özel cevaplar
+
     if "merhaba" in user_message.lower() or "selam" in user_message.lower():
         bot_response = f"Merhaba {current_user.full_name or 'değerli kullanıcı'}! Size nasıl yardımcı olabilirim?"
     elif "nasılsın" in user_message.lower() or "nasilsin" in user_message.lower():
@@ -446,12 +582,35 @@ def chat(
         bot_response = "Dosyalarınızı sol taraftaki panelden yönetebilirsiniz. Yeni dosya yüklemek için + butonunu kullanabilirsiniz."
     elif "yardım" in user_message.lower() or "help" in user_message.lower():
         bot_response = "Size yardımcı olmaktan mutluluk duyarım! Dosya yükleme, listeleme ve silme işlemleri yapabilirsiniz. Ayrıca benimle sohbet edebilirsiniz."
-    
+
     return ChatMessageOut(
         user_message=user_message,
         bot_response=bot_response,
         timestamp=datetime.utcnow()
     )
+
+
+# ------------------------ SMTP Test Endpoint --------------
+@app.post("/email/test")
+def email_test(current_user: Annotated[User, Depends(get_current_user)]):
+    subject = "SMTP Test"
+    html = f"""
+    <div style="font-family:Arial,sans-serif;">
+      <h3>SMTP Test</h3>
+      <p>Merhaba {current_user.full_name or current_user.email},</p>
+      <p>Bu bir test e-postasıdır. SMTP ayarlarınız başarılı görünüyor.</p>
+    </div>
+    """
+    try:
+        send_email(
+            to_email=current_user.email,
+            subject=subject,
+            html_body=html,
+            text_body="Bu bir SMTP test mesajıdır."
+        )
+        return {"message": f"Test e-postası {current_user.email} adresine gönderildi."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"E-posta gönderim hatası: {e}")
 
 
 # =========================================================
@@ -469,7 +628,7 @@ def get_notification_settings(
     settings = db.scalar(
         select(NotificationSettings).where(NotificationSettings.user_id == current_user.id)
     )
-    
+
     if not settings:
         # Varsayılan ayarları oluştur
         settings = NotificationSettings(
@@ -481,7 +640,7 @@ def get_notification_settings(
         db.add(settings)
         db.commit()
         db.refresh(settings)
-    
+
     return NotificationSettingsOut(
         email_notifications=bool(settings.email_notifications),
         email_notification_time=settings.email_notification_time,
@@ -503,7 +662,7 @@ def update_notification_settings(
     settings = db.scalar(
         select(NotificationSettings).where(NotificationSettings.user_id == current_user.id)
     )
-    
+
     if settings:
         # Mevcut ayarları güncelle
         settings.email_notifications = int(settings_in.email_notifications)
@@ -519,17 +678,16 @@ def update_notification_settings(
             push_notifications=int(settings_in.push_notifications)
         )
         db.add(settings)
-    
+
     db.commit()
     db.refresh(settings)
-    
+
     # Bildirim ayarları güncellendiğinde scheduler'ı yeniden yapılandır
     schedule_user_notifications()
-    
+
     return NotificationSettingsOut(
         email_notifications=bool(settings.email_notifications),
         email_notification_time=settings.email_notification_time,
         push_notifications=bool(settings.push_notifications),
         updated_at=settings.updated_at
     )
-
