@@ -148,6 +148,16 @@ class UploadedFileOut(BaseModel):
         from_attributes = True
 
 
+class ChatMessageIn(BaseModel):
+    message: str = Field(min_length=1, max_length=5000)
+
+
+class ChatMessageOut(BaseModel):
+    user_message: str
+    bot_response: str
+    timestamp: datetime
+
+
 # =========================================================
 # FastAPI Uygulaması
 # =========================================================
@@ -306,3 +316,35 @@ def delete_file(
     db.commit()
     
     return {"message": "Dosya başarıyla silindi", "filename": db_file.filename}
+
+
+# ------------------------ Chat Endpoint -------------------
+@app.post("/chat", response_model=ChatMessageOut)
+def chat(
+    payload: ChatMessageIn,
+    current_user: Annotated[User, Depends(get_current_user)]
+):
+    """
+    Chat endpoint'i. Kullanıcının mesajını alır ve bot cevabı döner.
+    Şimdilik basit bir cevap dönüyor, ileride AI model entegrasyonu yapılabilir.
+    """
+    user_message = payload.message.strip()
+    
+    # Basit bot cevapları (ileride AI model ile değiştirilebilir)
+    bot_response = f"Mesajınızı aldım: '{user_message}'. Bu bir demo cevaptır. İleride AI modeli entegre edilecek."
+    
+    # Eğer mesaj belirli kelimeler içeriyorsa özel cevaplar
+    if "merhaba" in user_message.lower() or "selam" in user_message.lower():
+        bot_response = f"Merhaba {current_user.full_name or 'değerli kullanıcı'}! Size nasıl yardımcı olabilirim?"
+    elif "nasılsın" in user_message.lower() or "nasilsin" in user_message.lower():
+        bot_response = "İyiyim, teşekkür ederim! Sizin için buradayım. Size nasıl yardımcı olabilirim?"
+    elif "dosya" in user_message.lower():
+        bot_response = "Dosyalarınızı sol taraftaki panelden yönetebilirsiniz. Yeni dosya yüklemek için + butonunu kullanabilirsiniz."
+    elif "yardım" in user_message.lower() or "help" in user_message.lower():
+        bot_response = "Size yardımcı olmaktan mutluluk duyarım! Dosya yükleme, listeleme ve silme işlemleri yapabilirsiniz. Ayrıca benimle sohbet edebilirsiniz."
+    
+    return ChatMessageOut(
+        user_message=user_message,
+        bot_response=bot_response,
+        timestamp=datetime.utcnow()
+    )

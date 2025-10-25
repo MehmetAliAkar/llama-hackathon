@@ -8,12 +8,25 @@ const Dashboard = ({ user, onLogout }) => {
   const [uploadedFiles, setUploadedFiles] = useState([])
   const [isUploading, setIsUploading] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [chatMessages, setChatMessages] = useState([])
+  const [currentMessage, setCurrentMessage] = useState('')
+  const [isSending, setIsSending] = useState(false)
   const fileInputRef = useRef(null)
+  const chatMessagesEndRef = useRef(null)
 
   // Component mount olduğunda kullanıcının dosyalarını yükle
   useEffect(() => {
     loadUserFiles()
   }, [])
+
+  // Chat mesajları değiştiğinde en alta scroll
+  useEffect(() => {
+    scrollToBottom()
+  }, [chatMessages])
+
+  const scrollToBottom = () => {
+    chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
 
   const loadUserFiles = async () => {
     try {
@@ -101,6 +114,54 @@ const Dashboard = ({ user, onLogout }) => {
     } catch (error) {
       console.error('Dosya silinirken hata:', error)
       alert(`Dosya silinirken hata oluştu: ${error.message}`)
+    }
+  }
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault()
+    
+    if (!currentMessage.trim() || isSending) {
+      return
+    }
+
+    const messageText = currentMessage.trim()
+    setCurrentMessage('')
+    setIsSending(true)
+
+    // Kullanıcı mesajını ekle
+    const userMessage = {
+      id: Date.now(),
+      type: 'user',
+      text: messageText,
+      timestamp: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+    }
+    setChatMessages(prev => [...prev, userMessage])
+
+    try {
+      // Backend'e gönder
+      const response = await apiService.sendMessage(messageText)
+      
+      // Bot cevabını ekle
+      const botMessage = {
+        id: Date.now() + 1,
+        type: 'bot',
+        text: response.bot_response,
+        timestamp: new Date(response.timestamp).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+      }
+      setChatMessages(prev => [...prev, botMessage])
+      
+    } catch (error) {
+      console.error('Mesaj gönderilirken hata:', error)
+      // Hata mesajı ekle
+      const errorMessage = {
+        id: Date.now() + 1,
+        type: 'bot',
+        text: `Üzgünüm, bir hata oluştu: ${error.message}`,
+        timestamp: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+      }
+      setChatMessages(prev => [...prev, errorMessage])
+    } finally {
+      setIsSending(false)
     }
   }
 
@@ -237,28 +298,52 @@ const Dashboard = ({ user, onLogout }) => {
             
             <div className="chat-area">
               <div className="chat-messages">
-                {/* Chat mesajları buraya gelecek */}
-                <div className="empty-chat">
-                  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                  </svg>
-                  <p>Dosya yükleyerek sohbete başlayın</p>
-                </div>
+                {chatMessages.length === 0 ? (
+                  <div className="empty-chat">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                    </svg>
+                    <p>Sohbete başlamak için bir mesaj yazın</p>
+                  </div>
+                ) : (
+                  <>
+                    {chatMessages.map(msg => (
+                      <div key={msg.id} className={`chat-message ${msg.type}`}>
+                        <div className="message-content">
+                          <p>{msg.text}</p>
+                          <span className="message-time">{msg.timestamp}</span>
+                        </div>
+                      </div>
+                    ))}
+                    <div ref={chatMessagesEndRef} />
+                  </>
+                )}
               </div>
               
-              <div className="chat-input-container">
+              <form className="chat-input-container" onSubmit={handleSendMessage}>
                 <input 
                   type="text" 
                   className="chat-input" 
                   placeholder="Mesajınızı yazın..."
+                  value={currentMessage}
+                  onChange={(e) => setCurrentMessage(e.target.value)}
+                  disabled={isSending}
                 />
-                <button className="send-button">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="22" y1="2" x2="11" y2="13"/>
-                    <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                  </svg>
+                <button 
+                  type="submit" 
+                  className="send-button"
+                  disabled={!currentMessage.trim() || isSending}
+                >
+                  {isSending ? (
+                    <span className="loading-spinner-small"></span>
+                  ) : (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="22" y1="2" x2="11" y2="13"/>
+                      <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                    </svg>
+                  )}
                 </button>
-              </div>
+              </form>
             </div>
           </div>
         </div>

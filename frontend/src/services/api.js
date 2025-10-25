@@ -171,6 +171,36 @@ class ApiService {
       throw error
     }
   }
+
+  // Chat mesajı gönder
+  async sendMessage(message) {
+    try {
+      const token = localStorage.getItem('access_token')
+      if (!token) {
+        throw new Error('Token bulunamadı')
+      }
+
+      const response = await fetch(`${API_BASE_URL}/chat`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: message,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.detail || 'Mesaj gönderilemedi')
+      }
+
+      return await response.json()
+    } catch (error) {
+      throw error
+    }
+  }
 }
 
 export default new ApiService()
